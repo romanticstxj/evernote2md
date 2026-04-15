@@ -1,7 +1,6 @@
 # convert_enex.ps1
 # Usage: .\convert_enex.ps1 -Source D:\evernote1 -Output D:\evernote2
 # Recursively finds all directories containing .enex files and converts them.
-# Failed notes are logged to failed_notes.txt for review.
 
 param(
     [Parameter(Mandatory=$true)]
@@ -10,9 +9,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Output,
 
-    [string]$Exe = "D:\tools\evernote2md.exe",
-
-    [string]$FailLog = "failed_notes.txt"
+    [string]$Exe = "D:\tools\evernote2md.exe"
 )
 
 $Source = $Source.TrimEnd('\', '/')
@@ -43,8 +40,6 @@ Write-Host ""
 
 $successCount = 0
 $failCount = 0
-$partialCount = 0
-$failLogLines = @()
 
 foreach ($srcDir in $dirsWithEnex) {
     $relativePath = $srcDir.Substring($Source.Length).TrimStart('\', '/')
@@ -61,35 +56,19 @@ foreach ($srcDir in $dirsWithEnex) {
     Write-Host "Converting: $srcDir"
     Write-Host "       To: $destDir"
 
-    # 捕获 stdout + stderr
-    $procOutput = & $Exe "$srcDir" "$destDir" 2>&1
+    $proc = Start-Process -FilePath $Exe `
+        -ArgumentList "`"$srcDir`"", "`"$destDir`"" `
+        -Wait -PassThru -NoNewWindow
 
-    # 打印原始输出
-    $procOutput | ForEach-Object { Write-Host "  $_" }
-
-    # 检测输出里是否有 [ERROR] 行
-    $errorLines = $procOutput | Where-Object { $_ -match '\[ERROR\]' }
-
-    if ($errorLines) {
-        # 有错误但也可能转换了部分笔记
-        Write-Host "  [PARTIAL] Some notes failed:" -ForegroundColor Yellow
-        foreach ($errLine in $errorLines) {
-            Write-Host "    $errLine" -ForegroundColor Yellow
-            $failLogLines += "[$srcDir] $errLine"
-        }
-        $partialCount++
-    } else {
-        Write-Host "  [OK]" -ForegroundColor Green
+    if ($proc.ExitCode -eq 0) {
+        Write-Host "  [OK]"
         $successCount++
+    } else {
+        Write-Host "  [FAILED] exit code: $($proc.ExitCode)"
+        $failCount++
     }
 
     Write-Host ""
 }
 
-# 写失败日志
-if ($failLogLines.Count -gt 0) {
-    $failLogLines | Out-File -FilePath $FailLog -Encoding UTF8
-    Write-Host "Failed notes logged to: $FailLog"
-}
-
-Write-Host "Done: $successCount OK, $partialCount partial (with errors), $failCount failed."
+Write-Host "Done: $successCount succeeded, $failCount failed."
